@@ -58,4 +58,4 @@ if [ $? -ne 0 ]; then
 fi
 
 # Run the main script
-python3 infer-web.py --pycmd python3
+python3 infer-web.py --pycmd python3 "$@"

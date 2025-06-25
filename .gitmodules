@@ -1,0 +1,6 @@
+[submodule "choraleModel/anticipation"]
+	path = choraleModel/anticipation
+	url = git@github.com:lancelotblanchard/anticipation.git
+[submodule "choraleModel/jsbChorales-1000"]
+	path = choraleModel/jsbChorales-1000
+	url = git@hf.co:mitmedialab/jsbChorales-1000
