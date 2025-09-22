@@ -1143,6 +1143,7 @@ class SynthesizerTrnMs768NSFsid_nono(nn.Module):
         **kwargs
     ):
         super(SynthesizerTrnMs768NSFsid_nono, self).__init__()
+        # super().init()
         self.spec_channels = spec_channels
         self.inter_channels = inter_channels
         self.hidden_channels = hidden_channels

@@ -59,6 +59,7 @@ class Config:
         ) = self.arg_parse()
         self.instead = ""
         self.x_pad, self.x_query, self.x_center, self.x_max = self.device_config()
+        self.time = True
 
     @staticmethod
     def load_config_json() -> dict:

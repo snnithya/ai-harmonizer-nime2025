@@ -39,6 +39,8 @@ import traceback
 import threading
 import shutil
 import logging
+import soundfile as sf
+import uuid
 
 
 logging.getLogger("numba").setLevel(logging.WARNING)
@@ -293,6 +295,13 @@ def preprocess_dataset(trainset_dir, exp_dir, sr, n_p):
     logger.info(log)
     yield log
 
+def save_audio(audio, sr, path=None):
+    if path is None:
+        os.makedirs("./tmp", exist_ok=True)
+        path = os.path.join("./tmp", f"temp_{uuid.uuid4().hex}.wav")
+    sf.write(path, audio, sr)
+    print("saved audio to ", path)
+    return path
 
 def harmonizer(sid, audio_input, transpose=0, predict_frame_threshold=0.5):
     timeLog("==== HARMONIZER RUN ====")
@@ -303,14 +312,16 @@ def harmonizer(sid, audio_input, transpose=0, predict_frame_threshold=0.5):
 
     startTime()
     _, _, _, _, index = vc.get_vc(sid, 0.33, 0.33)
+    # _, _, _, _, index = vc.get_vc("", 0.33, 0.33)
     stopTime()
     timeLog(f"Model load ({sid}): {t2-t1}")
 
     index = index["value"]
     if index is not None:
         print("Predicting")
-        print(audio_input)
-        out1, audio1 = vc.vc_single(0, audio_input, transpose, None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33, timeLog)
+        # audio_path1 = save_audio(audio_input, 44100)
+        audio_input = audio_input[1]
+        out1, audio1 = vc.vc_single(0, audio_input, transpose, None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33)
 
         # Basic Pitch
         startTime()
@@ -318,8 +329,10 @@ def harmonizer(sid, audio_input, transpose=0, predict_frame_threshold=0.5):
             _, midi, _ = predict(audio_input, frame_threshold=predict_frame_threshold)
         else:
             with tempfile.NamedTemporaryFile(delete=True, suffix=".wav") as temp:
-                r, y = audio_input
+                r, y = 16000,audio_input
                 sf.write(temp.name, y, r)
+                shutil.copy(temp.name, "./temp.wav")
+                print("copied temp to ", os.path.abspath("./temp.wav"))
                 _, midi, _ = predict(temp.name, frame_threshold=predict_frame_threshold)
         stopTime()
         timeLog(f"Basic Pitch prediction: {t2-t1}")
@@ -383,9 +396,9 @@ def harmonizer(sid, audio_input, transpose=0, predict_frame_threshold=0.5):
 
             f0[100+t2:] *= pow(2, (transpose+h2)/12)
 
-        out2, audio2 = vc.vc_single(0, audio_input, partial(transpose_func, 0), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33, timeLog)
-        out3, audio3 = vc.vc_single(0, audio_input, partial(transpose_func, 1), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33, timeLog)
-        out4, audio4 = vc.vc_single(0, audio_input, partial(transpose_func, 2), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33, timeLog)
+        out2, audio2 = vc.vc_single(0, audio_input, partial(transpose_func, 0), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33)
+        out3, audio3 = vc.vc_single(0, audio_input, partial(transpose_func, 1), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33)
+        out4, audio4 = vc.vc_single(0, audio_input, partial(transpose_func, 2), None, "rmvpe", "", index, 0.75, 3, 0, 0.25, 0.33)
         out = out1 + out2 + out3  + out4
 
         sr, audio1 = audio1
@@ -393,14 +406,20 @@ def harmonizer(sid, audio_input, transpose=0, predict_frame_threshold=0.5):
         _, audio3 = audio3
         _, audio4 = audio4
 
+        print("audio1", audio1)
+        print("audio2", audio2)
+        print("audio3", audio3)
+        print("audio4", audio4)
         audio = audio1*.25 + audio2*.25 + audio3*.25 + audio4*.25
-        # Prevent clipping by normalizing
-        # max_val = np.max(np.abs(audio))
-        # if max_val > 1.0:
-        #     audio = audio / max_val
-        # print(max_val)
+        # Prevent clipping by normalizing and ensure dtype is float32 for Gradio
+        max_val = np.max(np.abs(audio))
+        if max_val > 1.0:
+            audio = audio / max_val
+        audio = audio.astype(np.float32)
         np.save("audio.npy", audio)
         print(out)
+        print("audio", audio.shape)
+        print("sr", sr)
     return "success", (sr, audio)
 
 
@@ -947,7 +966,7 @@ with gr.Blocks(title="AI Harmonizer") as app:
             multiselect=False,
         )
     with gr.Row():
-        audio_input = gr.Audio(label="Audio to convert", interactive=True)
+        audio_input= gr.Audio(label="Audio to convert", interactive=True)
         convert_button = gr.Button(value="Convert!", variant="primary")
     with gr.Row():
         transpose = gr.Number(label="Transpose", value=0)
@@ -967,12 +986,20 @@ with gr.Blocks(title="AI Harmonizer") as app:
             api_name="harmonizer",
         )
 
-    if config.iscolab:
-        app.queue(max_size=1022).launch(share=True) # concurrency_count=511 in gradio==3.34
-    else:
-        app.queue(max_size=1022).launch(  # concurrency_count=511 in gradio==3.34
-            server_name="0.0.0.0",
-            inbrowser=not config.noautoopen,
-            server_port=config.listen_port,
-            quiet=True,
-        )
+    # if config.iscolab:
+    #     app.queue(max_size=1022).launch(share=True) # concurrency_count=511 in gradio==3.34
+    # else:
+    #     app.queue(max_size=1022).launch(  # concurrency_count=511 in gradio==3.34
+    #         server_name="0.0.0.0",
+    #         inbrowser=not config.noautoopen,
+    #         server_port=config.listen_port,
+    #         quiet=False,
+    #         debug=True,
+    #     )
+
+    app.launch(
+        share=True,
+        quiet=False,
+        debug=True,
+        server_name="0.0.0.0",
+    )
